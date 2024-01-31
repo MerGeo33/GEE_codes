@@ -1,6 +1,5 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED"),
-    trainingbase = ee.Image("projects/ee-mepo/assets/Trainingsbase_Raster");
+var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED");
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 ///// Add Cabo Delgado province as ROI
 var ROI_feat = ee.FeatureCollection("FAO/GAUL/2015/level2")
