@@ -1,0 +1,421 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED"),
+    trainingbase = ee.Image("projects/ee-mepo/assets/Trainingsbase_Raster");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+///// Add Cabo Delgado province as ROI
+var ROI_feat = ee.FeatureCollection("FAO/GAUL/2015/level2")
+  .filter(ee.Filter.eq('ADM1_NAME', 'Cabo Delgado'));
+
+var ROI = ROI_feat.geometry();
+
+Map.addLayer(ROI, {}, 'ROI',false);
+Map.centerObject(ROI, 7);
+
+///// visualisation param for Land-Cover Classes
+var viz = {min:1,max:6,palette:['FF00C5','38A800','A5F57A','FF0000','00A9E6','FFEBBE']};
+var palette = ['#d73027','#f46d43','#fdae61','#fee08b','#ffffbf','#d9ef8b','#a6d96a','#66bd63','#1a9850'];
+var ndviVis = {min:-0.2, max: 0.8,  palette: palette};
+
+///////////// loading trainingbase, prepared in ArcGIS Pro //////////////////////
+
+// Map.addLayer(trainingbase,viz, 'TrainingBase', false);
+// print(trainingbase.aggregate_histogram('gridcode'));
+// print(trainingbase.size());
+
+////////////////////// Filtering and Masking Imagery ////////////////////////////////
+/**
+* Functions to mask clouds using the Sentinel-2 QA and SCL band
+* @param {ee.Image} image Sentinel-2 image
+* @return {ee.Image} cloud masked Sentinel-2 image
+*/
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000)
+    .copyProperties(image).set("system:time_start", image.get("system:time_start"));;
+}
+
+function maskS2scl(image) {
+  // Select scene classification
+  var scl = image.select('SCL');
+  var sat = scl.neq(1);
+  var shadow = scl.neq(3);
+  var cloud_lo = scl.neq(7);
+  var cloud_md = scl.neq(8);
+  var cloud_hi = scl.neq(9);
+  var cirrus = scl.neq(10);
+  var snow = scl.neq(11);
+  
+  return image.updateMask(sat.eq(1)).updateMask(shadow.eq(1).updateMask(cloud_lo.eq(1)
+    .updateMask(cloud_md.eq(1).updateMask(cloud_hi.eq(1).updateMask(cirrus.eq(1).updateMask(snow.eq(1)))))));
+}
+
+///// Function to compute spectral indices and add as bands
+var compute_indices = function(image) {
+  var ndvi = image.normalizedDifference(['B8','B4'])
+    .rename('NDVI');
+  var evi = image.expression(
+    '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
+      'NIR': image.select('B8'),
+      'RED': image.select('B4'),
+      'BLUE': image.select('B2')})
+      .rename('EVI');
+  var ndmi = image.normalizedDifference(['B8', 'B11'])
+    .rename('NDMI');
+  var savi = image.expression('((nir-red)/(nir+red+0.5))*(1+0.5)', {
+    'nir': image.select('B8'),
+    'red': image.select('B4')})
+    .rename('SAVI');
+  var gcvi = image.expression('(nir/green)-1', {
+    'nir': image.select('B8'),
+    'green': image.select('B3')})
+    .rename('GCVI');
+  var bi = image.expression('((red+swir1)-(nir+blue))/((red+swir1)+(nir+blue))', {
+    'swir1': image.select('B11'),
+    'nir': image.select('B8'),
+    'red': image.select('B4'),
+    'blue': image.select('B2')})
+    .rename('BI');
+  return image.addBands(ndvi).addBands(evi).addBands(ndmi).addBands(savi).addBands(gcvi).addBands(bi);
+};
+
+//////// Filter Sentinel-2 images by date, ROI and Cloudy Pixel Percentage
+//////// apply cloud masking and compute indices
+
+var sen2_2021 = sen2.filterDate('2020-11-01','2021-10-31')
+  .filterBounds(ROI)
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30))
+  .map(maskS2clouds)
+  .map(maskS2scl)
+  .select('B2','B3','B4','B8','B11')
+  .map(compute_indices);
+// print(sen2_2021);
+
+// Map.addLayer(sen2_2021.select('NDVI'), ndviVis, 'Sen2 2021 NDVI mosaic',false);
+
+///// Display a time-series chart
+// var chart = ui.Chart.image.series({
+//   imageCollection: sen2_2021.select('NDVI'),
+//   region: cropland,
+//   reducer: ee.Reducer.mean()
+// }).setOptions({
+//       title: 'Original NDVI Time Series',
+//       interpolateNulls: false,
+//       vAxis: {title: 'NDVI'},
+//       hAxis: {title: '', format: 'YYYY-MM'},
+//       lineWidth: 1,
+//       pointSize: 4,
+//       series: {
+//         0: {color: '#238b45'},
+//       },
+
+//     })
+// print(chart);
+
+///// Moving-Window Smoothing
+// Specify the time-window
+var days = 12;
+
+// Convert to milliseconds 
+var millis = ee.Number(days).multiply(1000*60*60*24);
+
+// 'save-all join' to find all images within the time-window
+// The join will add all matching images into a new property called 'images'
+var join = ee.Join.saveAll({
+  matchesKey: 'images'
+});
+
+// This filter will match all images that are captured
+// within the specified day of the source image
+var diffFilter = ee.Filter.maxDifference({
+  difference: millis,
+  leftField: 'system:time_start', 
+  rightField: 'system:time_start'
+});
+
+var joinedCollection = join.apply({
+  primary: sen2_2021, 
+  secondary: sen2_2021, 
+  condition: diffFilter
+});
+
+// Extract and return the mean of matched images
+var extractAndComputeMean = function(image) {
+  var matchingImages = ee.ImageCollection.fromImages(image.get('images'));
+  var meanImage = matchingImages.reduce(
+    ee.Reducer.mean().setOutputs(['smooth']));
+  return ee.Image(image).addBands(meanImage);
+};
+
+var smoothedCollection = ee.ImageCollection(
+  joinedCollection.map(extractAndComputeMean));
+
+// Map.addLayer(smoothedCollection.select('NDVI_smooth'), ndviVis, 'Sen2 2021 NDVI smoothed mosaic',false);
+
+///// Display a time-series chart
+// var chart = ui.Chart.image.series({
+//   imageCollection: smoothedCollection.select(['NDVI','NDVI_smooth']),
+//   region: cropland,
+//   reducer: ee.Reducer.mean(),
+//   scale: 20
+// }).setOptions({
+//       title: 'NDVI Time Series',
+//       interpolateNulls: false,
+//       vAxis: {title: 'NDVI'},
+//       hAxis: {title: '', format: 'YYYY-MM'},
+//       lineWidth: 1,
+//       pointSize: 4,
+//       series: {
+//         0: {color: '#66c2a4', lineDashStyle: [1, 1], pointSize: 2}, // Original NDVI
+//         1: {color: '#238b45', lineWidth: 2 }, // Smoothed NDVI
+//       },
+
+//     })
+// print(chart);
+
+var s2_2021_wet = smoothedCollection.filterDate('2020-11-01','2021-05-31');
+var s2_2021_dry = smoothedCollection.filterDate('2021-06-01','2021-10-31');
+
+///// Calculate P25, P50, P75, P95 Percentiles per seasons
+var s2_21_wet_perc = s2_2021_wet.reduce(ee.Reducer.percentile([25,50,75,95]));
+var s2_21_dry_perc = s2_2021_dry.reduce(ee.Reducer.percentile([25,50,75,95]));
+
+///// Rename bands
+var s2_21_wet_perc = s2_21_wet_perc.select('B2_smooth_p25','B2_smooth_p50','B2_smooth_p75','B2_smooth_p95',
+  'B3_smooth_p25','B3_smooth_p50','B3_smooth_p75','B3_smooth_p95',
+  'B4_smooth_p25','B4_smooth_p50','B4_smooth_p75','B4_smooth_p95',
+  'B8_smooth_p25','B8_smooth_p50','B8_smooth_p75','B8_smooth_p95',
+  'B11_smooth_p25','B11_smooth_p50','B11_smooth_p75','B11_smooth_p95',
+  'NDVI_smooth_p25','NDVI_smooth_p50','NDVI_smooth_p75','NDVI_smooth_p95',
+  'EVI_smooth_p25','EVI_smooth_p50','EVI_smooth_p75','EVI_smooth_p95',
+  'NDMI_smooth_p25','NDMI_smooth_p50','NDMI_smooth_p75','NDMI_smooth_p95',
+  'SAVI_smooth_p25','SAVI_smooth_p50','SAVI_smooth_p75','SAVI_smooth_p95',
+  'GCVI_smooth_p25','GCVI_smooth_p50','GCVI_smooth_p75','GCVI_smooth_p95',
+  'BI_smooth_p25','BI_smooth_p50','BI_smooth_p75','BI_smooth_p95')
+  .rename('B2_p25','B2_p50','B2_p75','B2_p95',
+  'B3_p25','B3_p50','B3_p75','B3_p95',
+  'B4_p25','B4_p50','B4_p75','B4_p95',
+  'B8_p25','B8_p50','B8_p75','B8_p95',
+  'B11_p25','B11_p50','B11_p75','B11_p95',
+  'NDVI_p25','NDVI_p50','NDVI_p75','NDVI_p95',
+  'EVI_p25','EVI_p50','EVI_p75','EVI_p95',
+  'NDMI_p25','NDMI_p50','NDMI_p75','NDMI_p95',
+  'SAVI_p25','SAVI_p50','SAVI_p75','SAVI_p95',
+  'GCVI_p25','GCVI_p50','GCVI_p75','GCVI_p95',
+  'BI_p25','BI_p50','BI_p75','BI_p95');
+var s2_21_dry_perc = s2_21_dry_perc.select('B2_smooth_p25','B2_smooth_p50','B2_smooth_p75','B2_smooth_p95',
+  'B3_smooth_p25','B3_smooth_p50','B3_smooth_p75','B3_smooth_p95',
+  'B4_smooth_p25','B4_smooth_p50','B4_smooth_p75','B4_smooth_p95',
+  'B8_smooth_p25','B8_smooth_p50','B8_smooth_p75','B8_smooth_p95',
+  'B11_smooth_p25','B11_smooth_p50','B11_smooth_p75','B11_smooth_p95',
+  'NDVI_smooth_p25','NDVI_smooth_p50','NDVI_smooth_p75','NDVI_smooth_p95',
+  'EVI_smooth_p25','EVI_smooth_p50','EVI_smooth_p75','EVI_smooth_p95',
+  'NDMI_smooth_p25','NDMI_smooth_p50','NDMI_smooth_p75','NDMI_smooth_p95',
+  'SAVI_smooth_p25','SAVI_smooth_p50','SAVI_smooth_p75','SAVI_smooth_p95',
+  'GCVI_smooth_p25','GCVI_smooth_p50','GCVI_smooth_p75','GCVI_smooth_p95',
+  'BI_smooth_p25','BI_smooth_p50','BI_smooth_p75','BI_smooth_p95')
+  .rename('B2_dry_p25','B2_dry_p50','B2_dry_p75','B2_dry_p95',
+  'B3_dry_p25','B3_dry_p50','B3_dry_p75','B3_dry_p95',
+  'B4_dry_p25','B4_dry_p50','B4_dry_p75','B4_dry_p95',
+  'B8_dry_p25','B8_dry_p50','B8_dry_p75','B8_dry_p95',
+  'B11_dry_p25','B11_dry_p50','B11_dry_p75','B11_dry_p95',
+  'NDVI_dry_p25','NDVI_dry_p50','NDVI_dry_p75','NDVI_dry_p95',
+  'EVI_dry_p25','EVI_dry_p50','EVI_dry_p75','EVI_dry_p95',
+  'NDMI_dry_p25','NDMI_dry_p50','NDMI_dry_p75','NDMI_dry_p95',
+  'SAVI_dry_p25','SAVI_dry_p50','SAVI_dry_p75','SAVI_dry_p95',
+  'GCVI_dry_p25','GCVI_dry_p50','GCVI_dry_p75','GCVI_dry_p95',
+  'BI_dry_p25','BI_dry_p50','BI_dry_p75','BI_dry_p95');
+// print(s2_21_wet_perc);
+// print(s2_21_dry_perc);
+
+///// Adding texture indices for the wet season
+var texture = function(image) {
+  var ndvi = image.select('NDVI_p50').multiply(10000).toUint16();
+  var glcm3 = ndvi.glcmTexture({size: 3});
+  var glcm10 = ndvi.glcmTexture({size: 10});
+  var glcm20 = ndvi.glcmTexture({size: 20});
+  var contrast3 = glcm3.select('NDVI_p50_contrast').rename('NDVI_contrast3');
+  var contrast10 = glcm10.select('NDVI_p50_contrast').rename('NDVI_contrast10');
+  var contrast20 = glcm20.select('NDVI_p50_contrast').rename('NDVI_contrast20');
+  var savg3 = glcm3.select('NDVI_p50_savg').rename('NDVI_savg3');
+  var savg10 = glcm10.select('NDVI_p50_savg').rename('NDVI_savg10');
+  var savg20 = glcm20.select('NDVI_p50_savg').rename('NDVI_savg20');
+  var diss3 = glcm3.select('NDVI_p50_diss').rename('NDVI_diss3');
+  var diss10 = glcm10.select('NDVI_p50_diss').rename('NDVI_diss10');
+  var diss20 = glcm20.select('NDVI_p50_diss').rename('NDVI_diss20');
+  return image.addBands(contrast3).addBands(contrast10).addBands(contrast20)
+              .addBands(savg3).addBands(savg10).addBands(savg20)
+              .addBands(diss3).addBands(diss10).addBands(diss20);
+};
+
+var s2_21_wet_perc_tex = texture(s2_21_wet_perc);
+// print(s2_21_wet_perc_tex);
+
+///// Adding slope, elevation, long/lat and settlements
+var DEM = ee.Image("NASA/NASADEM_HGT/001");
+var slope = ee.Terrain.slope(DEM);
+var lonlat = ee.Image.pixelLonLat();
+var settlements = ee.Image("DLR/WSF/WSF2015/v1").unmask();
+
+///// Stacking seasonal images to annual image with all bands
+var s2_21_all = s2_21_dry_perc.addBands(DEM.select('elevation')).addBands(slope)
+                              .addBands(lonlat)
+                              .addBands(settlements)
+                              .addBands(s2_21_wet_perc_tex);
+print(s2_21_all);
+
+// Map.addLayer(s2_21_all, {bands: ['B4_p50','B3_p50','B2_p50'], min: 0, max: 0.2}, 'Sen2 2021 wet season composite',false);
+// Map.addLayer(s2_21_all, {bands: ['B4_dry_p50','B3_dry_p50','B2_dry_p50'], min: 0, max: 0.2}, 'Sen2 2021 dry season composite',false);
+
+///////////////// Generating stratified sampled training points ////////////////////
+//// loading trainingbase, prepared in ArcGIS Pro ////
+// Map.addLayer(trainingbase,viz, 'TrainingBase', false);
+
+// var points = function(image) {
+//     var samples = image.stratifiedSample({
+//     numPoints: 1000,
+//     classBand: 'b1',
+//     scale: 10,
+//     geometries: true
+//     });
+//     return samples;
+//     };
+// Export.table.toAsset({
+//   collection: ee.FeatureCollection(points(trainingbase)),
+//   description: 'training_points'
+// });
+
+var trainingpoints = ee.FeatureCollection('projects/ee-mepo/assets/training_points');
+// print(trainingpoints.first());
+// print(trainingpoints.aggregate_histogram('b1'));
+// print(trainingpoints.size());
+// Map.addLayer(trainingpoints,{color: 'black'},'Trainingpoints total')
+
+/////////////// Loading validation points, prepared in QGIS ////////////////////
+var validationpoints = ee.FeatureCollection('projects/ee-mepo/assets/validation_points_new');
+// print(validationpoints.first());
+// print(validationpoints.aggregate_histogram('b1'));
+// print(validationpoints.size());
+// Map.addLayer(validationpoints,{color: 'red'},'Validationpoints total')
+
+//////////// training the classifier //////
+var label = 'b1';
+
+/////// Creating and Exporting Training- and Validationdata per year ///////////
+//////////2021//////////
+// Export.table.toAsset({
+//   collection: ee.FeatureCollection(s2_21_all.sampleRegions({
+//     collection: trainingpoints,
+//     properties:[label],
+//     scale: 10,
+//     tileScale: 4,
+//     geometries: true
+//     })),
+//   description: 'training_21'
+// });
+// Export.table.toAsset({
+//   collection: ee.FeatureCollection(s2_21_all.sampleRegions({
+//     collection: validationpoints,
+//     properties:[label],
+//     scale: 10,
+//     tileScale: 4,
+//     geometries: true
+//     })),
+//   description: 'validation_21'
+// });
+////////////Classification///////////////
+////////////2021//////////
+var training_21 = ee.FeatureCollection('projects/ee-mepo/assets/training_21');
+var validation_21 = ee.FeatureCollection('projects/ee-mepo/assets/validation_21');
+
+// print('Training 21 je Klasse: ',training_21.aggregate_histogram('b1'));
+// print('Training 21 Size: ',training_21.size());
+
+var classifier_21 = ee.Classifier.smileRandomForest(100)
+  .train(training_21,label,s2_21_all.bandNames());
+
+///// get a dictionary with the feature importance of the classifier
+var dict_featImportance = classifier_21.explain();
+print('Results of trained classifier21', dict_featImportance);
+// Cast into a ee.Feature and a ee.FeatureCollection for exporting the importance as CSV
+var variable_importance = ee.Feature(null, ee.Dictionary(dict_featImportance).get('importance'));
+var variable_importance01 = ee.FeatureCollection(variable_importance);
+// // Export the FeatureCollection as CSV
+// Export.table.toDrive({
+// collection: variable_importance01,
+// description: 'variable_importance_subset21',
+// fileFormat: 'CSV'
+// });
+// Plot the importance of each band in a bar plot
+var chart =
+ui.Chart.feature.byProperty(variable_importance)
+.setChartType('ColumnChart')
+.setOptions({
+title: 'Random Forest Variable Importance',
+legend: {position: 'none'},
+hAxis: {title: 'Bands'},
+vAxis: {title: 'Importance'}
+});
+print(chart);
+
+///// Classification /////
+// Export.image.toAsset({
+//   image: s2_21_all.classify(classifier_21).clip(ROI),
+//   description: 'classification2021',
+//   region: ROI,
+//   scale: 10,
+//   crs: 'EPSG: 3037',
+//   maxPixels: 1234288260
+// });
+
+var classified_21 = ee.Image('projects/ee-mepo/assets/classification2021');
+var scale = 10;
+var classified_21_smooth = classified_21.focalMode();
+var classified_21_smooth2 = classified_21_smooth.focalMax(3).focalMin(5).focalMax(3);
+var class21_reproject = classified_21_smooth2.reproject('EPSG:3037',null,scale);
+// Map.addLayer(classified_21, viz, 'Classification 2021',false);
+// Map.addLayer(class21_reproject, viz, 'Classification 2021 smoothed',false);
+
+// Export.image.toDrive({
+//   image: classified_21_smooth.focalMax(3).focalMin(5).focalMax(3),
+//   description: 'classification2021_smooth',
+//   region: ROI,
+//   scale: 10,
+//   crs: 'EPSG: 3037',
+//   maxPixels: 1234288260
+// });
+
+////////////////////// ACCURACY ASSESSMENT //////////////////////////////
+///// Get a confusion matrix representing resubstitution accuracy. /////
+var trainAccuracy_21 = classifier_21.confusionMatrix();
+print('2021 Resubstitution error matrix: ', trainAccuracy_21);
+print('2021 Training overall accuracy: ', trainAccuracy_21.accuracy());
+///// Classify the validation data. /////
+var validated_21 = validation_21.classify(classifier_21);
+// Export.table.toDrive({
+//   collection: validated_21,
+//   description: 'validated_21'
+// })
+///// Get a confusion matrix representing expected accuracy. /////
+var testAccuracy_21 = validated_21.errorMatrix('b1', 'classification');
+
+print('2021 Validation error matrix: ', testAccuracy_21);
+print('2021 Validation overall accuracy: ', testAccuracy_21.accuracy());
+print('2021 Validation Consumers accuracy: ', testAccuracy_21.consumersAccuracy());
+print('2021 Validation Producers accuracy: ', testAccuracy_21.producersAccuracy());
+
+// Export Confusion Matrix
+// var exportAccuracy = ee.Feature(null, {matrix: testAccuracy_20.array()})
+// Export.table.toDrive({
+//   collection: ee.FeatureCollection(exportAccuracy),
+//   description: 'ConfusionMatrix2020',
+//   fileFormat: 'CSV'
+// });
