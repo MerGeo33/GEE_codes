@@ -1,6 +1,5 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED"),
-    trainingbase = ee.Image("projects/ee-mepo/assets/Trainingsbase_Raster");
+var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED");
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 ///// Add Cabo Delgado province as ROI
 var ROI_feat = ee.FeatureCollection("FAO/GAUL/2015/level2")
@@ -341,8 +340,8 @@ var label = 'b1';
 var training_22 = ee.FeatureCollection('projects/ee-mepo/assets/training_22');
 var validation_22 = ee.FeatureCollection('projects/ee-mepo/assets/validation_22');
 
-// print('Training 22 je Klasse: ',training_22.aggregate_histogram('b1'));
-// print('Training 22 Size: ',training_22.size());
+// print('Training 22 per class: ',training_22.aggregate_histogram('b1'));
+// print('Training 22 size: ',training_22.size());
 
 var classifier_22 = ee.Classifier.smileRandomForest(130)
   .train(training_22,label,s2_22_all.bandNames());
@@ -372,6 +371,7 @@ vAxis: {title: 'Importance'}
 print(chart);
 
 ///// Classification /////
+//// export image to avoid computation timeout /////
 // Export.image.toAsset({
 //   image: s2_22_all.classify(classifier_22).clip(ROI),
 //   description: 'classification2022',
@@ -380,7 +380,7 @@ print(chart);
 //   crs: 'EPSG: 3037',
 //   maxPixels: 1234288260
 // });
-
+///////// adjust path ///////
 var classified_22 = ee.Image('projects/ee-mepo/assets/classification2022');
 var scale = 10;
 var classified_22_smooth = classified_22.focalMode();
