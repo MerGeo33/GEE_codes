@@ -404,10 +404,6 @@ print('2021 Resubstitution error matrix: ', trainAccuracy_21);
 print('2021 Training overall accuracy: ', trainAccuracy_21.accuracy());
 ///// Classify the validation data. /////
 var validated_21 = validation_21.classify(classifier_21);
-// Export.table.toDrive({
-//   collection: validated_21,
-//   description: 'validated_21'
-// })
 ///// Get a confusion matrix representing expected accuracy. /////
 var testAccuracy_21 = validated_21.errorMatrix('b1', 'classification');
 
