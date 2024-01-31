@@ -336,8 +336,8 @@ var training_20 = ee.FeatureCollection('projects/ee-mepo/assets/training_20');
 var validation_20 = ee.FeatureCollection('projects/ee-mepo/assets/validation_20');
 print(training_20.first());
 
-// print('Training 20 je Klasse: ',training_20.aggregate_histogram('b1'));
-// print('Training 20 Size: ',training_20.size());
+// print('Training 20 per class: ',training_20.aggregate_histogram('b1'));
+// print('Training 20 size: ',training_20.size());
 
 var classifier_20 = ee.Classifier.smileRandomForest(130)
   .train(training_20,label,s2_20_all.bandNames());
@@ -376,6 +376,7 @@ print(chart);
 //   crs: 'EPSG: 3037',
 //   maxPixels: 1234288260
 // });
+///////// adjust path /////////
 var classified_20 = ee.Image('projects/ee-mepo/assets/classification2020');
 var scale = 10;
 var classified_20_smooth = classified_20.focalMode();
