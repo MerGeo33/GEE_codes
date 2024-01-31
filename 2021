@@ -276,7 +276,8 @@ print(s2_21_all);
 // Map.addLayer(s2_21_all, {bands: ['B4_dry_p50','B3_dry_p50','B2_dry_p50'], min: 0, max: 0.2}, 'Sen2 2021 dry season composite',false);
 
 ///////////////// Generating stratified sampled training points ////////////////////
-//// loading trainingbase, prepared in ArcGIS Pro ////
+//// loading trainingbase, prepared in ArcGIS Pro, adjust path ////
+var trainingbase = ee.Image('projects/ee-mepo/assets/Trainingsbase_Raster');
 // Map.addLayer(trainingbase,viz, 'TrainingBase', false);
 
 // var points = function(image) {
@@ -293,6 +294,7 @@ print(s2_21_all);
 //   description: 'training_points'
 // });
 
+/////// loading training and validation points, adjust paths ////////////
 var trainingpoints = ee.FeatureCollection('projects/ee-mepo/assets/training_points');
 // print(trainingpoints.first());
 // print(trainingpoints.aggregate_histogram('b1'));
@@ -333,6 +335,7 @@ var label = 'b1';
 // });
 ////////////Classification///////////////
 ////////////2021//////////
+///// adjust paths /////
 var training_21 = ee.FeatureCollection('projects/ee-mepo/assets/training_21');
 var validation_21 = ee.FeatureCollection('projects/ee-mepo/assets/validation_21');
 
@@ -367,6 +370,7 @@ vAxis: {title: 'Importance'}
 print(chart);
 
 ///// Classification /////
+//// export image to avoid computation timeout /////
 // Export.image.toAsset({
 //   image: s2_21_all.classify(classifier_21).clip(ROI),
 //   description: 'classification2021',
@@ -375,7 +379,7 @@ print(chart);
 //   crs: 'EPSG: 3037',
 //   maxPixels: 1234288260
 // });
-
+////// adjust path ///////
 var classified_21 = ee.Image('projects/ee-mepo/assets/classification2021');
 var scale = 10;
 var classified_21_smooth = classified_21.focalMode();
@@ -411,11 +415,3 @@ print('2021 Validation error matrix: ', testAccuracy_21);
 print('2021 Validation overall accuracy: ', testAccuracy_21.accuracy());
 print('2021 Validation Consumers accuracy: ', testAccuracy_21.consumersAccuracy());
 print('2021 Validation Producers accuracy: ', testAccuracy_21.producersAccuracy());
-
-// Export Confusion Matrix
-// var exportAccuracy = ee.Feature(null, {matrix: testAccuracy_20.array()})
-// Export.table.toDrive({
-//   collection: ee.FeatureCollection(exportAccuracy),
-//   description: 'ConfusionMatrix2020',
-//   fileFormat: 'CSV'
-// });
