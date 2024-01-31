@@ -279,6 +279,7 @@ print(s2_22_all);
 
 ///////////////// Generating stratified sampled training points ////////////////////
 //// loading trainingbase, prepared in ArcGIS Pro ////
+var trainingbase = ee.Image('projects/ee-mepo/assets/Trainingsbase_Raster');
 // Map.addLayer(trainingbase,viz, 'TrainingBase', false);
 
 // var points = function(image) {
@@ -295,6 +296,7 @@ print(s2_22_all);
 //   description: 'training_points'
 // });
 
+/////// loading training and validation points, adjust paths //////////
 var trainingpoints = ee.FeatureCollection('projects/ee-mepo/assets/training_points');
 // print(trainingpoints.first());
 // print(trainingpoints.aggregate_histogram('b1'));
@@ -335,6 +337,7 @@ var label = 'b1';
 // });
 ////////////Classification///////////////
 ////////////2022//////////
+///// adjust paths //////
 var training_22 = ee.FeatureCollection('projects/ee-mepo/assets/training_22');
 var validation_22 = ee.FeatureCollection('projects/ee-mepo/assets/validation_22');
 
@@ -402,10 +405,6 @@ print('2022 Resubstitution error matrix: ', trainAccuracy_22);
 print('2022 Training overall accuracy: ', trainAccuracy_22.accuracy());
 ///// Classify the validation data. /////
 var validated_22 = validation_22.classify(classifier_22);
-// Export.table.toDrive({
-//   collection: validated_22,
-//   description: 'validated_22'
-// })
 ///// Get a confusion matrix representing expected accuracy. /////
 var testAccuracy_22 = validated_22.errorMatrix('b1', 'classification');
 
@@ -413,11 +412,3 @@ print('2022 Validation error matrix: ', testAccuracy_22);
 print('2022 Validation overall accuracy: ', testAccuracy_22.accuracy());
 print('2022 Validation Consumers accuracy: ', testAccuracy_22.consumersAccuracy());
 print('2022 Validation Producers accuracy: ', testAccuracy_22.producersAccuracy());
-
-// // Export Confusion Matrix
-// var exportAccuracy = ee.Feature(null, {matrix: testAccuracy_22.array()})
-// Export.table.toDrive({
-//   collection: ee.FeatureCollection(exportAccuracy),
-//   description: 'ConfusionMatrix2022',
-//   fileFormat: 'CSV'
-// });
