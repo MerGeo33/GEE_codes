@@ -1,6 +1,5 @@
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED"),
-    trainingbase = ee.Image("projects/ee-mepo/assets/Trainingsbase_Raster");
+var sen2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED");
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
 ///// Add Cabo Delgado province as ROI
 var ROI_feat = ee.FeatureCollection("FAO/GAUL/2015/level2")
@@ -273,7 +272,8 @@ print(s2_20_all);
 // Map.addLayer(s2_20_all, {bands: ['B4_dry_p50','B3_dry_p50','B2_dry_p50'], min: 0, max: 0.2}, 'Sen2 2020 dry season composite',false);
 
 ///////////////// Generating stratified sampled training points ////////////////////
-//// loading trainingbase, prepared in ArcGIS Pro ////
+//// loading trainingbase, prepared in ArcGIS Pro, adjust path ////
+var trainingbase = ee.Image('projects/ee-mepo/assets/Trainingsbase_Raster');
 // Map.addLayer(trainingbase,viz, 'TrainingBase', false);
 
 // var points = function(image) {
@@ -290,6 +290,7 @@ print(s2_20_all);
 //   description: 'training_points'
 // });
 
+/////// loading training and validation points, adjust paths
 var trainingpoints = ee.FeatureCollection('projects/ee-mepo/assets/training_points');
 // print(trainingpoints.first());
 // print(trainingpoints.aggregate_histogram('b1'));
