@@ -290,7 +290,7 @@ var trainingbase = ee.Image('projects/ee-mepo/assets/Trainingsbase_Raster');
 //   description: 'training_points'
 // });
 
-/////// loading training and validation points, adjust paths
+/////// loading training and validation points, adjust paths ///////
 var trainingpoints = ee.FeatureCollection('projects/ee-mepo/assets/training_points');
 // print(trainingpoints.first());
 // print(trainingpoints.aggregate_histogram('b1'));
@@ -331,6 +331,7 @@ var label = 'b1';
 // });
 ////////////Classification///////////////
 ////////////2020//////////
+///// adjust paths /////
 var training_20 = ee.FeatureCollection('projects/ee-mepo/assets/training_20');
 var validation_20 = ee.FeatureCollection('projects/ee-mepo/assets/validation_20');
 print(training_20.first());
@@ -366,6 +367,7 @@ vAxis: {title: 'Importance'}
 print(chart);
 
 ///// Classification /////
+//// export image to avoid computation timeout /////
 // Export.image.toAsset({
 //   image: s2_20_all.classify(classifier_20).clip(ROI),
 //   description: 'classification2020',
@@ -398,10 +400,6 @@ print('2020 Resubstitution error matrix: ', trainAccuracy_20);
 print('2020 Training overall accuracy: ', trainAccuracy_20.accuracy());
 /// Classify the validation data. /////
 var validated_20 = validation_20.classify(classifier_20);
-// Export.table.toDrive({
-//   collection: validated_20,
-//   description: 'validated_20'
-// })
 ///// Get a confusion matrix representing expected accuracy. /////
 var testAccuracy_20 = validated_20.errorMatrix('b1', 'classification');
 
@@ -409,11 +407,3 @@ print('2020 Validation error matrix: ', testAccuracy_20);
 print('2020 Validation overall accuracy: ', testAccuracy_20.accuracy());
 print('2020 Validation Consumers accuracy: ', testAccuracy_20.consumersAccuracy());
 print('2020 Validation Producers accuracy: ', testAccuracy_20.producersAccuracy());
-
-// // Export Confusion Matrix
-// var exportAccuracy = ee.Feature(null, {matrix: testAccuracy_20.array()})
-// Export.table.toDrive({
-//   collection: ee.FeatureCollection(exportAccuracy),
-//   description: 'ConfusionMatrix2020',
-//   fileFormat: 'CSV'
-// });
